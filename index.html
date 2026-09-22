@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>㈱Inbalink シフト申請・履歴確認</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='18' height='18' x='3' y='4' rx='2' ry='2'/><line x1='16' x2='16' y1='2' y2='6'/><line x1='8' x2='8' y1='2' y2='6'/><line x1='3' x2='21' y1='10' y2='10'/></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif; background-color: #f8fafc; }
+    .glass-card { background: white; border-radius: 14px; box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04); border: 1px solid #f1f5f9; }
+  </style>
+</head>
+<body class="p-3 sm:p-6 text-slate-800 max-w-xl mx-auto pb-28">
+
+  <!-- ヘッダー -->
+  <header class="mb-4">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="bg-rose-600 p-2 rounded-xl text-white shadow-sm">
+          <i data-lucide="calendar-check-2" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-800">㈱Inbalink シフト申請</h1>
+          <p class="text-xs text-slate-500">毎週木曜締切・翌週分申請</p>
+        </div>
+      </div>
+      <button onclick="fetchStaffData(currentStaffId)" class="text-xs font-bold bg-white text-slate-600 border border-slate-200 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs hover:bg-slate-50">
+        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 同期
+      </button>
+    </div>
+  </header>
+
+  <!-- タブ切り替え（翌週提出 / 過去履歴） -->
+  <div class="flex bg-slate-200/70 p-1 rounded-xl mb-4 border border-slate-200">
+    <button id="tabBtnSubmit" onclick="switchMainTab('submit')" class="flex-1 py-2 text-xs font-extrabold rounded-lg bg-white text-slate-800 shadow-sm transition-all flex items-center justify-center gap-1.5">
+      <i data-lucide="edit-3" class="w-3.5 h-3.5 text-rose-600"></i>
+      <span>翌週シフト提出</span>
+    </button>
+    <button id="tabBtnHistory" onclick="switchMainTab('history')" class="flex-1 py-2 text-xs font-extrabold rounded-lg text-slate-500 hover:text-slate-700 transition-all flex items-center justify-center gap-1.5">
+      <i data-lucide="history" class="w-3.5 h-3.5"></i>
+      <span>過去シフト履歴 (月単位)</span>
+    </button>
+  </div>
+
+  <!-- スタッフ選択カード -->
+  <section class="glass-card p-3.5 mb-4 flex items-center justify-between gap-3">
+    <div>
+      <span class="block text-[11px] font-bold text-slate-400">提出スタッフ</span>
+      <span class="text-xs font-bold text-slate-600" id="syncStatus">シート同期完了</span>
+    </div>
+    <div class="relative w-44">
+      <select id="staffSelect" onchange="handleStaffChange(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 pr-8 text-sm font-bold text-slate-800 appearance-none focus:outline-none focus:ring-2 focus:ring-rose-200 cursor-pointer">
+        <option value="machida" selected>町田さん</option>
+        <option value="yamanaka">山中さん</option>
+      </select>
+      <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+    </div>
+  </section>
+
+  <!-- ===============================
+       VIEW 1: 翌週シフト提出画面
+       =============================== -->
+  <div id="viewSubmit">
+    
+    <!-- 木曜締切カウントダウンバナー -->
+    <div class="bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200/80 rounded-xl p-3 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+        <span class="text-xs font-bold text-slate-700">次回木曜締切まで</span>
+      </div>
+      <div class="text-xs font-bold text-rose-600 bg-white px-2.5 py-1 rounded-lg border border-rose-200 shadow-2xs">
+        あと <span id="deadlineCountdown" class="text-sm font-extrabold text-rose-700">-</span> 日
+      </div>
+    </div>
+
+    <!-- 翌週申請期間 ＆ 集計サマリー -->
+    <section class="glass-card p-4 mb-4 space-y-3">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">提出対象期間</span>
+          <span id="targetWeekRangeLabel" class="text-sm font-extrabold text-slate-800">2026年9月28日 〜 10月4日</span>
+        </div>
+        <span class="text-[11px] font-bold bg-rose-50 text-rose-600 border border-rose-200 px-2 py-0.5 rounded-md">翌週分</span>
+      </div>
+
+      <!-- リアルタイム給与試算 -->
+      <div class="bg-slate-50/80 border border-slate-200/60 rounded-xl p-3 flex justify-around text-center">
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">予定日数</span>
+          <span id="summaryDays" class="text-lg font-extrabold text-slate-800">0</span> <span class="text-[10px] text-slate-500 font-bold">日</span>
+        </div>
+        <div class="border-l border-slate-200"></div>
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">予定総時間</span>
+          <span id="summaryHours" class="text-lg font-extrabold text-rose-600">0.0</span> <span class="text-[10px] text-slate-500 font-bold">h</span>
+        </div>
+        <div class="border-l border-slate-200"></div>
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">概算給与見込 (@1,500)</span>
+          <span id="summaryCost" class="text-lg font-extrabold text-emerald-600">¥0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 一括入力ショートカットバー -->
+    <section class="mb-3 flex items-center justify-between">
+      <span class="text-xs font-bold text-slate-500">ワンタップ入力</span>
+      <div class="flex gap-1.5">
+        <button onclick="copyFromLastWeek()" class="bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 font-bold px-2 py-1 rounded-md text-[11px] shadow-2xs flex items-center gap-1">
+          <i data-lucide="copy" class="w-3 h-3"></i> 先週と同じ
+        </button>
+        <button onclick="applyBatchWeekday()" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold px-2 py-1 rounded-md text-[11px] shadow-2xs">
+          平日13-18
+        </button>
+        <button onclick="clearAllWeek()" class="bg-white border border-slate-200 hover:bg-rose-50 text-slate-400 hover:text-rose-600 font-bold px-2 py-1 rounded-md text-[11px] shadow-2xs">
+          クリア
+        </button>
+      </div>
+    </section>
+
+    <!-- 翌週（月〜日）入力カードリスト -->
+    <div id="weekDaysContainer" class="space-y-2.5 mb-5"></div>
+
+    <!-- SVへの連絡事項・変更理由 -->
+    <section class="glass-card p-3.5 mb-6 space-y-1.5">
+      <label class="block text-xs font-bold text-slate-700 flex items-center justify-between">
+        <span>SVへの連絡・希望理由</span>
+        <span class="text-[10px] text-slate-400 font-normal">任意入力</span>
+      </label>
+      <textarea id="submitNote" placeholder="例: 火曜日は所用のため14:00〜開始希望です。" rows="2" class="w-full text-xs p-2.5 border border-slate-200 rounded-lg focus:outline-none focus:border-rose-400 bg-slate-50"></textarea>
+    </section>
+
+    <!-- 提出固定バー -->
+    <div class="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg z-40">
+      <div class="max-w-xl mx-auto flex items-center gap-3">
+        <button onclick="handleSubmit()" id="submitBtn" class="flex-1 bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all">
+          <i data-lucide="send" class="w-4 h-4"></i>
+          <span>翌週シフトを提出する</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===============================
+       VIEW 2: 過去シフト履歴（月単位）
+       =============================== -->
+  <div id="viewHistory" class="hidden space-y-4">
+    
+    <!-- 対象月選択 ＆ 月次集計サマリー -->
+    <section class="glass-card p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">表示月切り替え</span>
+          <h2 class="text-sm font-extrabold text-slate-800" id="historyMonthLabel">2026年9月 実績・予定</h2>
+        </div>
+        <div class="relative">
+          <select id="historyMonthSelect" onchange="renderMonthHistory(this.value)" class="bg-slate-50 border border-slate-200 rounded-lg p-1.5 pr-7 text-xs font-bold text-slate-700 appearance-none focus:outline-none focus:ring-2 focus:ring-rose-200 cursor-pointer">
+            <option value="2026-08">2026年8月</option>
+            <option value="2026-09" selected>2026年9月</option>
+            <option value="2026-10">2026年10月</option>
+            <option value="2026-11">2026年11月</option>
+          </select>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        </div>
+      </div>
+
+      <!-- 月間サマリー -->
+      <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex justify-around text-center">
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">実働日数</span>
+          <span id="histMonthDays" class="text-lg font-extrabold text-slate-800">0</span> <span class="text-[10px] text-slate-500 font-bold">日</span>
+        </div>
+        <div class="border-l border-slate-200"></div>
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">実働総時間</span>
+          <span id="histMonthHours" class="text-lg font-extrabold text-rose-600">0.0</span> <span class="text-[10px] text-slate-500 font-bold">h</span>
+        </div>
+        <div class="border-l border-slate-200"></div>
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 block">支給予定額 (@1,500)</span>
+          <span id="histMonthCost" class="text-lg font-extrabold text-emerald-600">¥0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 月間カレンダーグリッド -->
+    <div class="glass-card p-3">
+      <div class="grid grid-cols-7 border-b border-slate-100 text-center text-[11px] font-bold py-1.5 mb-1.5 text-slate-400">
+        <div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="text-blue-500">土</div><div class="text-rose-500">日</div>
+      </div>
+      <div id="historyCalendarGrid" class="grid grid-cols-7 gap-1"></div>
+    </div>
+
+    <!-- 月間シフト内訳リスト -->
+    <div class="glass-card p-3.5">
+      <h3 class="text-xs font-bold text-slate-600 mb-2.5 flex items-center justify-between">
+        <span>稼働日一覧</span>
+        <span class="text-[10px] text-slate-400 font-normal">スプレッドシート連動</span>
+      </h3>
+      <div id="historyListContainer" class="space-y-1.5 text-xs"></div>
+    </div>
+  </div>
+
+  <script>
+    const DEFAULT_WAGE = 1500;
+    
+    // スプレッドシート設定（ダッシュボードと同一のURL・タブ設定）
+    const STAFF_DATA_SOURCES = {
+      machida: {
+        name: '町田さん',
+        url: 'https://docs.google.com/spreadsheets/d/1n2wpxJORZYjYQN3cRRyy2ONuvsqR36LYffJYLjskarc/edit?gid=354556482#gid=354556482'
+      },
+      yamanaka: {
+        name: '山中さん',
+        url: 'https://docs.google.com/spreadsheets/d/1KS1yanrIfaSyLTumRqdgfUSRI_MsQEMm5JooaXAVnJM/edit?gid=712987012#gid=712987012'
+      }
+    };
+
+    // 祝日データ
+    const HOLIDAYS_JP = {
+      '2026-09-21': '敬老の日',
+      '2026-09-22': '国民の休日',
+      '2026-09-23': '秋分の日',
+      '2026-10-12': 'スポーツの日',
+      '2026-11-03': '文化の日',
+      '2026-11-23': '勤労感謝の日'
+    };
+
+    let currentStaffId = 'machida';
+    let currentMainTab = 'submit';
+    
+    // スプレッドシートから読み込んだ全データ保持用 { dateKey: { start, end, hours } }
+    let remoteShiftDB = {};
+
+    // 翌週提出用の編集ステート
+    let nextWeekShifts = {};
+    let nextWeekDates = [];
+
+    // 30分刻みの時間候補 (09:00 〜 21:00)
+    const timeOptions = [];
+    for (let h = 9; h <= 21; h++) {
+      const hStr = String(h).padStart(2, '0');
+      timeOptions.push(`${hStr}:00`);
+      if (h < 21) timeOptions.push(`${hStr}:30`);
+    }
+
+    function init() {
+      lucide.createIcons();
+      updateDeadlineCountdown();
+      calculateNextWeekDates();
+      renderWeekInputForm();
+      fetchStaffData(currentStaffId);
+    }
+
+    // 木曜締切までの残り日数
+    function updateDeadlineCountdown() {
+      const today = new Date();
+      const currentDay = today.getDay(); // 0:日, 1:月, 2:火, 3:水, 4:木, 5:金, 6:土
+      let daysUntilThursday = 4 - currentDay;
+      if (daysUntilThursday < 0) daysUntilThursday += 7;
+      if (daysUntilThursday === 0) {
+        document.getElementById('deadlineCountdown').textContent = '本日';
+      } else {
+        document.getElementById('deadlineCountdown').textContent = daysUntilThursday;
+      }
+    }
+
+    // 今日の日付から「来週の月曜〜日曜」の7日間を算出
+    function calculateNextWeekDates() {
+      const today = new Date();
+      const day = today.getDay();
+      const daysUntilNextMonday = ((1 - day + 7) % 7) || 7; // 次の月曜日までの日数
+
+      const nextMonday = new Date(today);
+      nextMonday.setDate(today.getDate() + daysUntilNextMonday);
+
+      nextWeekDates = [];
+      const dayHeaders = ['月', '火', '水', '木', '金', '土', '日'];
+
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(nextMonday);
+        d.setDate(nextMonday.getDate() + i);
+
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dt = String(d.getDate()).padStart(2, '0');
+
+        nextWeekDates.push({
+          dateKey: `${y}-${m}-${dt}`,
+          year: y,
+          month: d.getMonth() + 1,
+          date: d.getDate(),
+          dayName: dayHeaders[i],
+          dayIdx: (i + 1) % 7, // 1:月...6:土, 0:日
+          isWeekend: (i >= 5),
+          isHoliday: !!HOLIDAYS_JP[`${y}-${m}-${dt}`],
+          holidayName: HOLIDAYS_JP[`${y}-${m}-${dt}`] || ''
+        });
+      }
+
+      const first = nextWeekDates[0];
+      const last = nextWeekDates[6];
+      document.getElementById('targetWeekRangeLabel').textContent = 
+        `${first.year}年${first.month}月${first.date}日 〜 ${last.month}月${last.date}日`;
+    }
+
+    // 翌週入力フォームの生成
+    function renderWeekInputForm() {
+      const container = document.getElementById('weekDaysContainer');
+      let html = '';
+
+      nextWeekDates.forEach(d => {
+        let badgeBg = 'bg-slate-100 text-slate-700';
+        let dayColor = 'text-slate-600';
+
+        if (d.isHoliday || d.dayName === '日') {
+          badgeBg = 'bg-rose-100 text-rose-600';
+          dayColor = 'text-rose-600';
+        } else if (d.dayName === '土') {
+          badgeBg = 'bg-blue-100 text-blue-600';
+          dayColor = 'text-blue-600';
+        }
+
+        html += `
+          <div class="glass-card p-3 transition-all border border-slate-200/80" id="card-${d.dateKey}">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="w-7 h-7 rounded-lg ${badgeBg} flex items-center justify-center font-extrabold text-xs">
+                  ${d.date}
+                </span>
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-bold ${dayColor}">${d.dayName}曜日</span>
+                    ${d.isHoliday ? `<span class="text-[10px] font-bold text-rose-500 bg-rose-50 px-1 rounded border border-rose-200">${d.holidayName}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+
+              <!-- 出勤トグルスイッチ -->
+              <label class="inline-flex items-center cursor-pointer gap-2">
+                <span class="text-xs font-bold text-slate-500" id="toggleLabel-${d.dateKey}">休み</span>
+                <input type="checkbox" id="toggle-${d.dateKey}" onchange="toggleDayWork('${d.dateKey}', this.checked)" class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+              </label>
+            </div>
+
+            <!-- 時間選択スライダー（OFF時は非表示） -->
+            <div id="timeSelector-${d.dateKey}" class="hidden pt-2 border-t border-slate-100 space-y-2">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="font-bold text-slate-400">開始</span>
+                <select id="start-${d.dateKey}" onchange="updateDayHours('${d.dateKey}')" class="bg-slate-50 border border-slate-200 rounded-md p-1 font-bold text-slate-700">
+                  ${timeOptions.map(t => `<option value="${t}" ${t === '13:00' ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+                <span class="font-bold text-slate-400">〜 終了</span>
+                <select id="end-${d.dateKey}" onchange="updateDayHours('${d.dateKey}')" class="bg-slate-50 border border-slate-200 rounded-md p-1 font-bold text-slate-700">
+                  ${timeOptions.map(t => `<option value="${t}" ${t === '18:00' ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+                <span id="hoursBadge-${d.dateKey}" class="ml-auto font-extrabold text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs border border-rose-100">
+                  5.0h
+                </span>
+              </div>
+
+              <!-- クイック選択タグ -->
+              <div class="flex gap-1.5 pt-1">
+                <button type="button" onclick="setPresetTime('${d.dateKey}', '13:00', '18:00')" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">13-18 (5h)</button>
+                <button type="button" onclick="setPresetTime('${d.dateKey}', '14:00', '17:00')" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">14-17 (3h)</button>
+                <button type="button" onclick="setPresetTime('${d.dateKey}', '13:00', '17:00')" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">13-17 (4h)</button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+      recalculateSummary();
+    }
+
+    // 出勤ON/OFFの切り替え
+    function toggleDayWork(dateKey, isWorking) {
+      const timeBox = document.getElementById(`timeSelector-${dateKey}`);
+      const card = document.getElementById(`card-${dateKey}`);
+      const label = document.getElementById(`toggleLabel-${dateKey}`);
+
+      if (isWorking) {
+        timeBox.classList.remove('hidden');
+        card.classList.add('border-rose-300', 'bg-rose-50/20');
+        label.textContent = '出勤';
+        label.className = 'text-xs font-bold text-rose-600';
+        updateDayHours(dateKey);
+      } else {
+        timeBox.classList.add('hidden');
+        card.classList.remove('border-rose-300', 'bg-rose-50/20');
+        label.textContent = '休み';
+        label.className = 'text-xs font-bold text-slate-500';
+        delete nextWeekShifts[dateKey];
+        recalculateSummary();
+      }
+    }
+
+    // 選択された時間の計算とバリデーション
+    function updateDayHours(dateKey) {
+      const start = document.getElementById(`start-${dateKey}`).value;
+      const end = document.getElementById(`end-${dateKey}`).value;
+
+      const sDec = timeToDecimal(start);
+      const eDec = timeToDecimal(end);
+
+      if (eDec <= sDec) {
+        alert('終了時刻は開始時刻より後に設定してください。');
+        document.getElementById(`end-${dateKey}`).value = '18:00';
+        updateDayHours(dateKey);
+        return;
+      }
+
+      const hrs = eDec - sDec;
+      document.getElementById(`hoursBadge-${dateKey}`).textContent = `${hrs.toFixed(1)}h`;
+      nextWeekShifts[dateKey] = { start, end, hours: hrs };
+      recalculateSummary();
+    }
+
+    function setPresetTime(dateKey, start, end) {
+      document.getElementById(`start-${dateKey}`).value = start;
+      document.getElementById(`end-${dateKey}`).value = end;
+      updateDayHours(dateKey);
+    }
+
+    function timeToDecimal(tStr) {
+      const p = tStr.split(':');
+      return parseInt(p[0]) + parseInt(p[1]) / 60;
+    }
+
+    // 平日13-18一括
+    function applyBatchWeekday() {
+      nextWeekDates.forEach(d => {
+        if (!d.isWeekend && !d.isHoliday) {
+          const toggle = document.getElementById(`toggle-${d.dateKey}`);
+          toggle.checked = true;
+          toggleDayWork(d.dateKey, true);
+          setPresetTime(d.dateKey, '13:00', '18:00');
+        }
+      });
+    }
+
+    // 全クリア
+    function clearAllWeek() {
+      nextWeekDates.forEach(d => {
+        const toggle = document.getElementById(`toggle-${d.dateKey}`);
+        toggle.checked = false;
+        toggleDayWork(d.dateKey, false);
+      });
+    }
+
+    // ▼ スプレッドシートから「先週の実績」を呼び出して翌週に複製 ▼
+    function copyFromLastWeek() {
+      // 提出対象週（翌週）のちょうど7日前のパターンを参照
+      let matchCount = 0;
+
+      nextWeekDates.forEach(d => {
+        const targetDate = new Date(d.year, d.month - 1, d.date);
+        targetDate.setDate(targetDate.getDate() - 7); // 7日前
+
+        const y = targetDate.getFullYear();
+        const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const dt = String(targetDate.getDate()).padStart(2, '0');
+        const prevDateKey = `${y}-${m}-${dt}`;
+
+        const prevShift = remoteShiftDB[prevDateKey];
+        const toggle = document.getElementById(`toggle-${d.dateKey}`);
+
+        if (prevShift) {
+          toggle.checked = true;
+          toggleDayWork(d.dateKey, true);
+          setPresetTime(d.dateKey, prevShift.start, prevShift.end);
+          matchCount++;
+        } else {
+          toggle.checked = false;
+          toggleDayWork(d.dateKey, false);
+        }
+      });
+
+      if (matchCount > 0) {
+        recalculateSummary();
+      } else {
+        alert('前週（7日前）のシフトデータが見つかりませんでした。');
+      }
+    }
+
+    // サマリー再計算
+    function recalculateSummary() {
+      const days = Object.keys(nextWeekShifts).length;
+      let totalHours = 0;
+      for (let k in nextWeekShifts) {
+        totalHours += nextWeekShifts[k].hours;
+      }
+      const cost = Math.round(totalHours * DEFAULT_WAGE);
+
+      document.getElementById('summaryDays').textContent = days;
+      document.getElementById('summaryHours').textContent = totalHours.toFixed(1);
+      document.getElementById('summaryCost').textContent = `¥${cost.toLocaleString()}`;
+    }
+
+    // ==========================================
+    // Googleスプレッドシート（GViz API）からのデータ同期
+    // ==========================================
+    window.gvizCallback = {};
+
+    function fetchStaffData(staffId) {
+      const staff = STAFF_DATA_SOURCES[staffId];
+      if (!staff) return;
+
+      document.getElementById('syncStatus').textContent = '同期通信中...';
+
+      const urlMatch = staff.url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (!urlMatch) {
+        document.getElementById('syncStatus').textContent = 'URLエラー';
+        return;
+      }
+      const sheetId = urlMatch[1];
+      
+      let gidPart = "";
+      const gidMatch = staff.url.match(/gid=([0-9]+)/);
+      if (gidMatch) gidPart = `&gid=${gidMatch[1]}`;
+
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:gvizCallback.cb_${staffId}${gidPart}`;
+
+      window.gvizCallback[`cb_${staffId}`] = function(json) {
+        parseSheetJson(json);
+        document.getElementById('syncStatus').textContent = 'シート同期完了';
+        renderMonthHistory(document.getElementById('historyMonthSelect').value);
+      };
+
+      const script = document.createElement('script');
+      script.src = gvizUrl;
+      script.onerror = () => {
+        document.getElementById('syncStatus').textContent = '同期失敗 (設定確認)';
+      };
+      document.body.appendChild(script);
+    }
+
+    function parseSheetJson(json) {
+      if (!json || !json.table || !json.table.rows) return;
+      remoteShiftDB = {};
+
+      json.table.rows.forEach(row => {
+        if (!row || !row.c) return;
+        let rowDateKey = null;
+        let timeValues = [];
+
+        row.c.forEach(cell => {
+          if (!cell) return;
+          const val = cell.f || cell.v;
+          if (!rowDateKey) {
+            const d = normalizeDate(val);
+            if (d) rowDateKey = d;
+          } else {
+            const t = normalizeTime(val);
+            if (t) timeValues.push(t);
+          }
+        });
+
+        if (rowDateKey && timeValues.length >= 1) {
+          const start = timeValues[0];
+          const end = timeValues.length >= 2 ? timeValues[1] : '18:00';
+          const hrs = timeToDecimal(end) - timeToDecimal(start);
+          if (hrs > 0) {
+            remoteShiftDB[rowDateKey] = { start, end, hours: hrs };
+          }
+        }
+      });
+    }
+
+    function normalizeDate(val) {
+      if (!val) return null;
+      let s = String(val);
+      const dMatch = s.match(/Date\((\d+),\s*(\d+),\s*(\d+)/);
+      if (dMatch) {
+        let m = String(parseInt(dMatch[2]) + 1).padStart(2, '0');
+        let d = String(dMatch[3]).padStart(2, '0');
+        return `${dMatch[1]}-${m}-${d}`;
+      }
+      const isoMatch = s.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      if (isoMatch) {
+        let m = String(isoMatch[2]).padStart(2, '0');
+        let d = String(isoMatch[3]).padStart(2, '0');
+        return `${isoMatch[1]}-${m}-${d}`;
+      }
+      return null;
+    }
+
+    function normalizeTime(val) {
+      if (!val) return null;
+      let s = String(val);
+      let tMatch = s.match(/^(\d{1,2})[:：](\d{2})$/);
+      if (tMatch) {
+        let h = parseInt(tMatch[1]);
+        if (h >= 8 && h <= 22) {
+          return `${String(h).padStart(2, '0')}:${tMatch[2]}`;
+        }
+      }
+      return null;
+    }
+
+    function handleStaffChange(staffId) {
+      currentStaffId = staffId;
+      fetchStaffData(staffId);
+    }
+
+    // ==========================================
+    // VIEW 2: 過去シフト（月間）のレンダリング
+    // ==========================================
+    function renderMonthHistory(yearMonth) {
+      const parts = yearMonth.split('-');
+      const year = parseInt(parts[0]);
+      const month = parseInt(parts[1]); // 1-based
+
+      document.getElementById('historyMonthLabel').textContent = `${year}年${month}月 実績・予定`;
+
+      const firstDay = new Date(year, month - 1, 1);
+      const lastDay = new Date(year, month, 0).getDate();
+
+      // 月曜始まり（日=6, 月=0）
+      let startOffset = firstDay.getDay() - 1;
+      if (startOffset === -1) startOffset = 6;
+
+      const grid = document.getElementById('historyCalendarGrid');
+      const list = document.getElementById('historyListContainer');
+      let gridHtml = '';
+      let listHtml = '';
+
+      let mDays = 0;
+      let mHours = 0;
+
+      // 余白埋め
+      for (let i = 0; i < startOffset; i++) {
+        gridHtml += `<div class="h-16 p-1 bg-slate-50/40 rounded border border-dashed border-slate-200/50"></div>`;
+      }
+
+      for (let day = 1; day <= lastDay; day++) {
+        const dStr = String(day).padStart(2, '0');
+        const mStr = String(month).padStart(2, '0');
+        const dateKey = `${year}-${mStr}-${dStr}`;
+
+        const dObj = new Date(year, month - 1, day);
+        const dayIdx = dObj.getDay();
+        const isSun = (dayIdx === 0);
+        const isSat = (dayIdx === 6);
+        const isHol = !!HOLIDAYS_JP[dateKey];
+
+        let numColor = 'text-slate-700';
+        if (isHol || isSun) numColor = 'text-rose-600';
+        else if (isSat) numColor = 'text-blue-600';
+
+        const shift = remoteShiftDB[dateKey];
+
+        if (shift) {
+          mDays++;
+          mHours += shift.hours;
+
+          gridHtml += `
+            <div class="h-16 p-1 rounded-lg border border-rose-200 bg-rose-50/40 flex flex-col justify-between">
+              <span class="text-[11px] font-extrabold ${numColor}">${day}</span>
+              <div class="text-[9px] font-bold text-rose-600 leading-tight">
+                ${shift.start}<br>${shift.end}
+              </div>
+            </div>
+          `;
+
+          listHtml += `
+            <div class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-100">
+              <div class="flex items-center gap-2">
+                <span class="w-6 text-center font-bold ${numColor}">${month}/${day}</span>
+                <span class="text-slate-400">(${['日','月','火','水','木','金','土'][dayIdx]})</span>
+                ${isHol ? `<span class="text-[10px] text-rose-500 font-bold">${HOLIDAYS_JP[dateKey]}</span>` : ''}
+              </div>
+              <div class="font-bold text-slate-700">
+                ${shift.start} 〜 ${shift.end} <span class="text-rose-600 font-extrabold ml-1">(${shift.hours}h)</span>
+              </div>
+            </div>
+          `;
+        } else {
+          gridHtml += `
+            <div class="h-16 p-1 rounded-lg border border-slate-100 bg-white flex flex-col">
+              <span class="text-[11px] font-bold ${numColor} opacity-70">${day}</span>
+            </div>
+          `;
+        }
+      }
+
+      // 末尾余白
+      const remaining = (7 - ((startOffset + lastDay) % 7)) % 7;
+      for (let i = 0; i < remaining; i++) {
+        gridHtml += `<div class="h-16 p-1 bg-slate-50/40 rounded border border-dashed border-slate-200/50"></div>`;
+      }
+
+      grid.innerHTML = gridHtml;
+      list.innerHTML = listHtml || `<div class="text-center text-slate-400 py-4">この月の稼働実績・予定はありません</div>`;
+
+      document.getElementById('histMonthDays').textContent = mDays;
+      document.getElementById('histMonthHours').textContent = mHours.toFixed(1);
+      document.getElementById('histMonthCost').textContent = `¥${Math.round(mHours * DEFAULT_WAGE).toLocaleString()}`;
+    }
+
+    // タブ切り替え処理
+    function switchMainTab(tab) {
+      currentMainTab = tab;
+      const isSub = (tab === 'submit');
+
+      document.getElementById('viewSubmit').classList.toggle('hidden', !isSub);
+      document.getElementById('viewHistory').classList.toggle('hidden', isSub);
+
+      document.getElementById('tabBtnSubmit').className = isSub 
+        ? "flex-1 py-2 text-xs font-extrabold rounded-lg bg-white text-slate-800 shadow-sm transition-all flex items-center justify-center gap-1.5"
+        : "flex-1 py-2 text-xs font-extrabold rounded-lg text-slate-500 hover:text-slate-700 transition-all flex items-center justify-center gap-1.5";
+
+      document.getElementById('tabBtnHistory').className = !isSub 
+        ? "flex-1 py-2 text-xs font-extrabold rounded-lg bg-white text-slate-800 shadow-sm transition-all flex items-center justify-center gap-1.5"
+        : "flex-1 py-2 text-xs font-extrabold rounded-lg text-slate-500 hover:text-slate-700 transition-all flex items-center justify-center gap-1.5";
+
+      if (!isSub) {
+        renderMonthHistory(document.getElementById('historyMonthSelect').value);
+      }
+      lucide.createIcons();
+    }
+
+    // 提出ボタン処理（GAS Web API等への送信ペイロード構造）
+    function handleSubmit() {
+      const staffSelect = document.getElementById('staffSelect');
+      const staffName = staffSelect.options[staffSelect.selectedIndex].text;
+      const note = document.getElementById('submitNote').value;
+      const totalDays = document.getElementById('summaryDays').textContent;
+      const totalHours = document.getElementById('summaryHours').textContent;
+
+      if (Object.keys(nextWeekShifts).length === 0) {
+        if (!confirm('出勤日が0日として選択されています。休みとして提出しますか？')) {
+          return;
+        }
+      }
+
+      const payload = {
+        staffId: staffSelect.value,
+        staffName: staffName,
+        targetPeriod: document.getElementById('targetWeekRangeLabel').textContent,
+        shifts: nextWeekShifts,
+        note: note,
+        submittedAt: new Date().toISOString()
+      };
+
+      console.log('送信データ構造:', payload);
+
+      const btn = document.getElementById('submitBtn');
+      btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> 送信中...`;
+      btn.disabled = true;
+      lucide.createIcons();
+
+      setTimeout(() => {
+        alert(`【提出完了】\n${staffName}の翌週シフト（計 ${totalDays}日 / ${totalHours}時間）を送信しました。\n\n※GASバックエンド連携時にスプレッドシートへ自動上書きされます。`);
+        btn.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i> 提出完了`;
+        btn.classList.replace('bg-rose-600', 'bg-emerald-600');
+        lucide.createIcons();
+      }, 1000);
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
