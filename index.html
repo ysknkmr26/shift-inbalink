@@ -500,7 +500,7 @@
       document.getElementById('summaryCost').textContent = `¥${cost.toLocaleString()}`;
     }
 
-    // ==========================================
+// ==========================================
     // Googleスプレッドシート（GViz API）からのデータ同期
     // ==========================================
     function fetchStaffData(staffId) {
@@ -516,13 +516,10 @@
       }
       const sheetId = urlMatch[1];
       
-      let gidPart = "";
-      const gidMatch = staff.url.match(/gid=([0-9]+)/);
-      if (gidMatch) gidPart = `&gid=${gidMatch[1]}`;
-
-      // コールバック関数名を動的に生成してグローバルに登録
+      // 「シフト一覧」タブを明示的に指定して読み込む
+      const sheetName = encodeURIComponent('シフト一覧');
       const callbackName = `gvizCallback_${staffId}`;
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler=${callbackName}${gidPart}`;
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler=${callbackName}&sheet=${sheetName}`;
 
       window[callbackName] = function(json) {
         parseSheetJson(json);
@@ -543,28 +540,21 @@
       remoteShiftDB = {};
 
       json.table.rows.forEach(row => {
-        if (!row || !row.c) return;
-        let rowDateKey = null;
-        let timeValues = [];
+        // A列(0), D列(3), E列(4) が存在するかチェック
+        if (!row || !row.c || !row.c[0] || !row.c[3]) return;
 
-        row.c.forEach(cell => {
-          if (!cell) return;
-          const val = cell.f || cell.v;
-          if (!rowDateKey) {
-            const d = normalizeDate(val);
-            if (d) rowDateKey = d;
-          } else {
-            const t = normalizeTime(val);
-            if (t) timeValues.push(t);
-          }
-        });
+        const dateVal = row.c[0].f || row.c[0].v;
+        const startVal = row.c[3].f || row.c[3].v;
+        const endVal = row.c[4] ? (row.c[4].f || row.c[4].v) : '18:00';
 
-        if (rowDateKey && timeValues.length >= 1) {
-          const start = timeValues[0];
-          const end = timeValues.length >= 2 ? timeValues[1] : '18:00';
+        const dateKey = normalizeDate(dateVal);
+        const start = normalizeTime(startVal);
+        const end = normalizeTime(endVal);
+
+        if (dateKey && start && end) {
           const hrs = timeToDecimal(end) - timeToDecimal(start);
           if (hrs > 0) {
-            remoteShiftDB[rowDateKey] = { start, end, hours: hrs };
+            remoteShiftDB[dateKey] = { start, end, hours: hrs };
           }
         }
       });
@@ -590,8 +580,12 @@
 
     function normalizeTime(val) {
       if (!val) return null;
+      // スプレッドシートの時刻型データの配列フォーマットに対応
+      if (Array.isArray(val) && val.length >= 2) {
+        return `${String(val[0]).padStart(2, '0')}:${String(val[1]).padStart(2, '0')}`;
+      }
       let s = String(val);
-      let tMatch = s.match(/^(\d{1,2})[:：](\d{2})$/);
+      let tMatch = s.match(/^(\d{1,2})[:：](\d{2})/);
       if (tMatch) {
         let h = parseInt(tMatch[1]);
         if (h >= 8 && h <= 22) {
