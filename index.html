@@ -206,7 +206,7 @@
   <script>
     const DEFAULT_WAGE = 1500;
     
-    // スプレッドシート設定（ダッシュボードと同一のURL・タブ設定）
+    // スプレッドシート設定
     const STAFF_DATA_SOURCES = {
       machida: {
         name: '町田さん',
@@ -231,14 +231,11 @@
     let currentStaffId = 'machida';
     let currentMainTab = 'submit';
     
-    // スプレッドシートから読み込んだ全データ保持用 { dateKey: { start, end, hours } }
     let remoteShiftDB = {};
-
-    // 翌週提出用の編集ステート
     let nextWeekShifts = {};
     let nextWeekDates = [];
 
-    // 30分刻みの時間候補 (09:00 〜 21:00)
+    // 30分刻みの時間候補
     const timeOptions = [];
     for (let h = 9; h <= 21; h++) {
       const hStr = String(h).padStart(2, '0');
@@ -254,10 +251,9 @@
       fetchStaffData(currentStaffId);
     }
 
-    // 木曜締切までの残り日数
     function updateDeadlineCountdown() {
       const today = new Date();
-      const currentDay = today.getDay(); // 0:日, 1:月, 2:火, 3:水, 4:木, 5:金, 6:土
+      const currentDay = today.getDay(); 
       let daysUntilThursday = 4 - currentDay;
       if (daysUntilThursday < 0) daysUntilThursday += 7;
       if (daysUntilThursday === 0) {
@@ -267,11 +263,10 @@
       }
     }
 
-    // 今日の日付から「来週の月曜〜日曜」の7日間を算出
     function calculateNextWeekDates() {
       const today = new Date();
       const day = today.getDay();
-      const daysUntilNextMonday = ((1 - day + 7) % 7) || 7; // 次の月曜日までの日数
+      const daysUntilNextMonday = ((1 - day + 7) % 7) || 7;
 
       const nextMonday = new Date(today);
       nextMonday.setDate(today.getDate() + daysUntilNextMonday);
@@ -293,7 +288,7 @@
           month: d.getMonth() + 1,
           date: d.getDate(),
           dayName: dayHeaders[i],
-          dayIdx: (i + 1) % 7, // 1:月...6:土, 0:日
+          dayIdx: (i + 1) % 7, 
           isWeekend: (i >= 5),
           isHoliday: !!HOLIDAYS_JP[`${y}-${m}-${dt}`],
           holidayName: HOLIDAYS_JP[`${y}-${m}-${dt}`] || ''
@@ -306,7 +301,6 @@
         `${first.year}年${first.month}月${first.date}日 〜 ${last.month}月${last.date}日`;
     }
 
-    // 翌週入力フォームの生成
     function renderWeekInputForm() {
       const container = document.getElementById('weekDaysContainer');
       let html = '';
@@ -338,7 +332,6 @@
                 </div>
               </div>
 
-              <!-- 出勤トグルスイッチ -->
               <label class="inline-flex items-center cursor-pointer gap-2">
                 <span class="text-xs font-bold text-slate-500" id="toggleLabel-${d.dateKey}">休み</span>
                 <input type="checkbox" id="toggle-${d.dateKey}" onchange="toggleDayWork('${d.dateKey}', this.checked)" class="sr-only peer">
@@ -346,7 +339,6 @@
               </label>
             </div>
 
-            <!-- 時間選択スライダー（OFF時は非表示） -->
             <div id="timeSelector-${d.dateKey}" class="hidden pt-2 border-t border-slate-100 space-y-2">
               <div class="flex items-center gap-2 text-xs">
                 <span class="font-bold text-slate-400">開始</span>
@@ -362,7 +354,6 @@
                 </span>
               </div>
 
-              <!-- クイック選択タグ -->
               <div class="flex gap-1.5 pt-1">
                 <button type="button" onclick="setPresetTime('${d.dateKey}', '13:00', '18:00')" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">13-18 (5h)</button>
                 <button type="button" onclick="setPresetTime('${d.dateKey}', '14:00', '17:00')" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">14-17 (3h)</button>
@@ -377,7 +368,6 @@
       recalculateSummary();
     }
 
-    // 出勤ON/OFFの切り替え
     function toggleDayWork(dateKey, isWorking) {
       const timeBox = document.getElementById(`timeSelector-${dateKey}`);
       const card = document.getElementById(`card-${dateKey}`);
@@ -399,7 +389,6 @@
       }
     }
 
-    // 選択された時間の計算とバリデーション
     function updateDayHours(dateKey) {
       const start = document.getElementById(`start-${dateKey}`).value;
       const end = document.getElementById(`end-${dateKey}`).value;
@@ -431,7 +420,6 @@
       return parseInt(p[0]) + parseInt(p[1]) / 60;
     }
 
-    // 平日13-18一括
     function applyBatchWeekday() {
       nextWeekDates.forEach(d => {
         if (!d.isWeekend && !d.isHoliday) {
@@ -443,7 +431,6 @@
       });
     }
 
-    // 全クリア
     function clearAllWeek() {
       nextWeekDates.forEach(d => {
         const toggle = document.getElementById(`toggle-${d.dateKey}`);
@@ -452,7 +439,6 @@
       });
     }
 
-    // スプレッドシートから「先週の実績」を呼び出して翌週に複製
     function copyFromLastWeek() {
       let matchCount = 0;
 
@@ -486,7 +472,6 @@
       }
     }
 
-    // サマリー再計算
     function recalculateSummary() {
       const days = Object.keys(nextWeekShifts).length;
       let totalHours = 0;
@@ -516,10 +501,11 @@
       }
       const sheetId = urlMatch[1];
       
-      // 「シフト一覧」タブを明示的に指定して読み込む
       const sheetName = encodeURIComponent('シフト一覧');
       const callbackName = `gvizCallback_${staffId}`;
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler=${callbackName}&sheet=${sheetName}`;
+      
+      // 【修正箇所】 ここの responseHandler の直後を = ではなく : に修正しました
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${callbackName}&sheet=${sheetName}`;
 
       window[callbackName] = function(json) {
         parseSheetJson(json);
@@ -540,7 +526,6 @@
       remoteShiftDB = {};
 
       json.table.rows.forEach(row => {
-        // A列(0), D列(3), E列(4) が存在するかチェック
         if (!row || !row.c || !row.c[0] || !row.c[3]) return;
 
         const dateVal = row.c[0].f || row.c[0].v;
@@ -580,7 +565,6 @@
 
     function normalizeTime(val) {
       if (!val) return null;
-      // スプレッドシートの時刻型データの配列フォーマットに対応
       if (Array.isArray(val) && val.length >= 2) {
         return `${String(val[0]).padStart(2, '0')}:${String(val[1]).padStart(2, '0')}`;
       }
@@ -692,7 +676,6 @@
       document.getElementById('histMonthCost').textContent = `¥${Math.round(mHours * DEFAULT_WAGE).toLocaleString()}`;
     }
 
-    // タブ切り替え処理
     function switchMainTab(tab) {
       currentMainTab = tab;
       const isSub = (tab === 'submit');
@@ -730,7 +713,6 @@
         }
       }
 
-      // 対象週の7日間すべての日付を配列で取得
       const submittedDates = nextWeekDates.map(d => d.dateKey);
 
       const payload = {
@@ -745,7 +727,6 @@
       btn.disabled = true;
       lucide.createIcons();
 
-      // ご指定いただいたGASのURLを設定
       const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyRxM61xaOaHf5FqFxFETDkQ1nEdGDd7FTn0HoHiRqGorumHQ26I7Z6S8HL4QYJMlgSCw/exec';
 
       try {
