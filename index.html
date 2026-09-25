@@ -504,7 +504,6 @@
       const sheetName = encodeURIComponent('シフト一覧');
       const callbackName = `gvizCallback_${staffId}`;
       
-      // 【修正箇所】 ここの responseHandler の直後を = ではなく : に修正しました
       const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${callbackName}&sheet=${sheetName}`;
 
       window[callbackName] = function(json) {
@@ -526,12 +525,21 @@
       remoteShiftDB = {};
 
       json.table.rows.forEach(row => {
-        if (!row || !row.c || !row.c[0] || !row.c[3]) return;
+        // A列(日付: 0 または B列: 1), D列(開始: 3), E列(終了: 4) をチェック
+        if (!row || !row.c) return;
+        
+        // 町田さんのシートはB列(1)に日付、山中さんはA列(0)に日付があるため、両方に対応
+        let dateCell = row.c[1] || row.c[0]; 
+        let startCell = row.c[3];
+        let endCell = row.c[4];
 
-        const dateVal = row.c[0].f || row.c[0].v;
-        const startVal = row.c[3].f || row.c[3].v;
-        const endVal = row.c[4] ? (row.c[4].f || row.c[4].v) : '18:00';
+        if (!dateCell || !startCell) return;
 
+        const dateVal = dateCell.f || dateCell.v;
+        const startVal = startCell.f || startCell.v;
+        const endVal = endCell ? (endCell.f || endCell.v) : '18:00';
+
+        // 【修正ポイント】 文字列のまま入ってきた日付（"2026-09-14"）も処理できるように強化
         const dateKey = normalizeDate(dateVal);
         const start = normalizeTime(startVal);
         const end = normalizeTime(endVal);
@@ -547,14 +555,18 @@
 
     function normalizeDate(val) {
       if (!val) return null;
-      let s = String(val);
+      let s = String(val).trim();
+      
+      // パターン1: スプレッドシートの日付型 (例: "Date(2026,8,14)")
       const dMatch = s.match(/Date\((\d+),\s*(\d+),\s*(\d+)/);
       if (dMatch) {
         let m = String(parseInt(dMatch[2]) + 1).padStart(2, '0');
         let d = String(dMatch[3]).padStart(2, '0');
         return `${dMatch[1]}-${m}-${d}`;
       }
-      const isoMatch = s.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      
+      // パターン2: 文字列としての日付 (例: "2026-09-14" または "2026/09/14")
+      const isoMatch = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
       if (isoMatch) {
         let m = String(isoMatch[2]).padStart(2, '0');
         let d = String(isoMatch[3]).padStart(2, '0');
@@ -568,7 +580,7 @@
       if (Array.isArray(val) && val.length >= 2) {
         return `${String(val[0]).padStart(2, '0')}:${String(val[1]).padStart(2, '0')}`;
       }
-      let s = String(val);
+      let s = String(val).trim();
       let tMatch = s.match(/^(\d{1,2})[:：](\d{2})/);
       if (tMatch) {
         let h = parseInt(tMatch[1]);
