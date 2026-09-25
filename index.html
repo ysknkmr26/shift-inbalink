@@ -525,22 +525,22 @@
       remoteShiftDB = {};
 
       json.table.rows.forEach(row => {
-        // A列(日付: 0 または B列: 1), D列(開始: 3), E列(終了: 4) をチェック
         if (!row || !row.c) return;
         
-        // 町田さんのシートはB列(1)に日付、山中さんはA列(0)に日付があるため、両方に対応
-        let dateCell = row.c[1] || row.c[0]; 
+        // A列(0)とB列(1)の両方の値を抽出
+        let valA = row.c[0] ? (row.c[0].f || row.c[0].v) : null;
+        let valB = row.c[1] ? (row.c[1].f || row.c[1].v) : null;
         let startCell = row.c[3];
         let endCell = row.c[4];
 
-        if (!dateCell || !startCell) return;
+        if (!startCell) return;
 
-        const dateVal = dateCell.f || dateCell.v;
+        // 【修正ポイント】A列とB列をチェックし、日付形式になっている方のみを自動で採用
+        const dateKey = normalizeDate(valA) || normalizeDate(valB);
+        
         const startVal = startCell.f || startCell.v;
         const endVal = endCell ? (endCell.f || endCell.v) : '18:00';
 
-        // 【修正ポイント】 文字列のまま入ってきた日付（"2026-09-14"）も処理できるように強化
-        const dateKey = normalizeDate(dateVal);
         const start = normalizeTime(startVal);
         const end = normalizeTime(endVal);
 
@@ -557,7 +557,6 @@
       if (!val) return null;
       let s = String(val).trim();
       
-      // パターン1: スプレッドシートの日付型 (例: "Date(2026,8,14)")
       const dMatch = s.match(/Date\((\d+),\s*(\d+),\s*(\d+)/);
       if (dMatch) {
         let m = String(parseInt(dMatch[2]) + 1).padStart(2, '0');
@@ -565,7 +564,6 @@
         return `${dMatch[1]}-${m}-${d}`;
       }
       
-      // パターン2: 文字列としての日付 (例: "2026-09-14" または "2026/09/14")
       const isoMatch = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
       if (isoMatch) {
         let m = String(isoMatch[2]).padStart(2, '0');
