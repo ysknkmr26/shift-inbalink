@@ -452,14 +452,13 @@
       });
     }
 
-    // ▼ スプレッドシートから「先週の実績」を呼び出して翌週に複製 ▼
+    // スプレッドシートから「先週の実績」を呼び出して翌週に複製
     function copyFromLastWeek() {
-      // 提出対象週（翌週）のちょうど7日前のパターンを参照
       let matchCount = 0;
 
       nextWeekDates.forEach(d => {
         const targetDate = new Date(d.year, d.month - 1, d.date);
-        targetDate.setDate(targetDate.getDate() - 7); // 7日前
+        targetDate.setDate(targetDate.getDate() - 7);
 
         const y = targetDate.getFullYear();
         const m = String(targetDate.getMonth() + 1).padStart(2, '0');
@@ -504,8 +503,6 @@
     // ==========================================
     // Googleスプレッドシート（GViz API）からのデータ同期
     // ==========================================
-    window.gvizCallback = {};
-
     function fetchStaffData(staffId) {
       const staff = STAFF_DATA_SOURCES[staffId];
       if (!staff) return;
@@ -523,9 +520,11 @@
       const gidMatch = staff.url.match(/gid=([0-9]+)/);
       if (gidMatch) gidPart = `&gid=${gidMatch[1]}`;
 
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:gvizCallback.cb_${staffId}${gidPart}`;
+      // コールバック関数名を動的に生成してグローバルに登録
+      const callbackName = `gvizCallback_${staffId}`;
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler=${callbackName}${gidPart}`;
 
-      window.gvizCallback[`cb_${staffId}`] = function(json) {
+      window[callbackName] = function(json) {
         parseSheetJson(json);
         document.getElementById('syncStatus').textContent = 'シート同期完了';
         renderMonthHistory(document.getElementById('historyMonthSelect').value);
@@ -613,14 +612,13 @@
     function renderMonthHistory(yearMonth) {
       const parts = yearMonth.split('-');
       const year = parseInt(parts[0]);
-      const month = parseInt(parts[1]); // 1-based
+      const month = parseInt(parts[1]); 
 
       document.getElementById('historyMonthLabel').textContent = `${year}年${month}月 実績・予定`;
 
       const firstDay = new Date(year, month - 1, 1);
       const lastDay = new Date(year, month, 0).getDate();
 
-      // 月曜始まり（日=6, 月=0）
       let startOffset = firstDay.getDay() - 1;
       if (startOffset === -1) startOffset = 6;
 
@@ -632,7 +630,6 @@
       let mDays = 0;
       let mHours = 0;
 
-      // 余白埋め
       for (let i = 0; i < startOffset; i++) {
         gridHtml += `<div class="h-16 p-1 bg-slate-50/40 rounded border border-dashed border-slate-200/50"></div>`;
       }
@@ -688,7 +685,6 @@
         }
       }
 
-      // 末尾余白
       const remaining = (7 - ((startOffset + lastDay) % 7)) % 7;
       for (let i = 0; i < remaining; i++) {
         gridHtml += `<div class="h-16 p-1 bg-slate-50/40 rounded border border-dashed border-slate-200/50"></div>`;
@@ -724,8 +720,10 @@
       lucide.createIcons();
     }
 
-    // 提出ボタン処理（GAS Web API等への送信ペイロード構造）
-    function handleSubmit() {
+    // ==========================================
+    // 提出ボタン処理（GASへの送信処理）
+    // ==========================================
+    async function handleSubmit() {
       const staffSelect = document.getElementById('staffSelect');
       const staffName = staffSelect.options[staffSelect.selectedIndex].text;
       const note = document.getElementById('submitNote').value;
@@ -738,28 +736,46 @@
         }
       }
 
+      // 対象週の7日間すべての日付を配列で取得
+      const submittedDates = nextWeekDates.map(d => d.dateKey);
+
       const payload = {
         staffId: staffSelect.value,
-        staffName: staffName,
-        targetPeriod: document.getElementById('targetWeekRangeLabel').textContent,
         shifts: nextWeekShifts,
-        note: note,
-        submittedAt: new Date().toISOString()
+        submittedDates: submittedDates, 
+        note: note
       };
-
-      console.log('送信データ構造:', payload);
 
       const btn = document.getElementById('submitBtn');
       btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> 送信中...`;
       btn.disabled = true;
       lucide.createIcons();
 
-      setTimeout(() => {
-        alert(`【提出完了】\n${staffName}の翌週シフト（計 ${totalDays}日 / ${totalHours}時間）を送信しました。\n\n※GASバックエンド連携時にスプレッドシートへ自動上書きされます。`);
-        btn.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i> 提出完了`;
-        btn.classList.replace('bg-rose-600', 'bg-emerald-600');
-        lucide.createIcons();
-      }, 1000);
+      // ご指定いただいたGASのURLを設定
+      const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyRxM61xaOaHf5FqFxFETDkQ1nEdGDd7FTn0HoHiRqGorumHQ26I7Z6S8HL4QYJMlgSCw/exec';
+
+      try {
+        const response = await fetch(WEB_APP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+          alert(`【提出完了】\n${staffName}の翌週シフト（計 ${totalDays}日 / ${totalHours}時間）をスプレッドシートに書き込みました。`);
+          btn.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i> 提出完了`;
+          btn.classList.replace('bg-rose-600', 'bg-emerald-600');
+        } else {
+          throw new Error(result.message);
+        }
+      } catch (e) {
+        alert('書き込みエラーが発生しました。設定URLが正しいか確認してください。\n詳細: ' + e.message);
+        btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i> 翌週シフトを提出する`;
+        btn.disabled = false;
+      }
+      lucide.createIcons();
     }
 
     window.onload = init;
